@@ -1,6 +1,6 @@
 {
   "name": "d-api-sdk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Complete NodeJS SDK for D-API WhatsApp integration",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

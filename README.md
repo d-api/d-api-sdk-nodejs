@@ -5,17 +5,17 @@ Complete NodeJS SDK for D-API WhatsApp integration. Works on both server (Node.j
 ## Installation
 
 ```bash
-npm install d-api-lib
+npm install d-api-sdk
 # or
-yarn add d-api-lib
+yarn add d-api-sdk
 # or
-pnpm add d-api-lib
+pnpm add d-api-sdk
 ```
 
 ## Quick Start
 
 ```typescript
-import { DApi } from 'd-api-lib';
+import { DApi } from 'd-api-sdk';
 
 const dapi = new DApi({
   apiKey: 'your-api-key',
@@ -479,7 +479,7 @@ const dapi = new DApi({
 ## Error Handling
 
 ```typescript
-import { DApi, DApiError } from 'd-api-lib';
+import { DApi, DApiError } from 'd-api-sdk';
 
 try {
   await dapi.messages.sendText({ ... });
@@ -504,7 +504,7 @@ import type {
   Group,
   Chat,
   Contact,
-} from 'd-api-lib';
+} from 'd-api-sdk';
 ```
 
 ## Browser Support

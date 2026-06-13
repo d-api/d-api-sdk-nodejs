@@ -20,3 +20,25 @@ export interface SendSmsResponse {
   status: string;
   costMicroReais: number;
 }
+
+export interface SendBulkSmsOptions {
+  /** Destination numbers. The same `text` is sent to all of them. */
+  to: string[];
+  text: string;
+  route?: string;
+  sender?: string;
+}
+
+export interface SendBulkSmsResponse {
+  success: boolean;
+  sent: number;
+  failed: number;
+  /** Numbers not sent because the wallet balance ran out. */
+  skipped: number;
+  results: Array<{
+    to: string;
+    messageId?: string;
+    status: 'sent' | 'failed' | 'skipped';
+    error?: string;
+  }>;
+}

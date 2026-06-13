@@ -16,6 +16,9 @@ export {
   MediaModule,
   HistoryModule,
   IntegrationsModule,
+  VoiceModule,
+  SmsModule,
+  AccountWebhooksModule,
 } from './modules';
 
 // Type exports

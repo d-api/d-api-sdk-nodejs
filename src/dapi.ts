@@ -10,6 +10,9 @@ import {
   MediaModule,
   HistoryModule,
   IntegrationsModule,
+  VoiceModule,
+  SmsModule,
+  AccountWebhooksModule,
 } from './modules';
 
 export interface DApiConfig extends DApiClientConfig {}
@@ -93,6 +96,21 @@ export class DApi {
    */
   public readonly integrations: IntegrationsModule;
 
+  /**
+   * Voice module - Trigger URA phone calls (single or bulk)
+   */
+  public readonly voice: VoiceModule;
+
+  /**
+   * SMS module - Send SMS messages
+   */
+  public readonly sms: SmsModule;
+
+  /**
+   * Account webhooks module - Configure voice/SMS webhooks for the account
+   */
+  public readonly accountWebhooks: AccountWebhooksModule;
+
   constructor(config: DApiConfig) {
     this.client = new DApiClient(config);
 
@@ -106,6 +124,9 @@ export class DApi {
     this.media = new MediaModule(this.client);
     this.history = new HistoryModule(this.client);
     this.integrations = new IntegrationsModule(this.client);
+    this.voice = new VoiceModule(this.client);
+    this.sms = new SmsModule(this.client);
+    this.accountWebhooks = new AccountWebhooksModule(this.client);
   }
 
   /**

@@ -9,3 +9,6 @@ export * from './labels';
 export * from './media';
 export * from './history';
 export * from './integrations';
+export * from './voice';
+export * from './sms';
+export * from './account-webhooks';

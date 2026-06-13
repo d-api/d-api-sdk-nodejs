@@ -8,3 +8,6 @@ export { LabelsModule } from './labels';
 export { MediaModule } from './media';
 export { HistoryModule } from './history';
 export { IntegrationsModule } from './integrations';
+export { VoiceModule } from './voice';
+export { SmsModule } from './sms';
+export { AccountWebhooksModule } from './account-webhooks';

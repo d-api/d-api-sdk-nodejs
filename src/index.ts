@@ -26,3 +26,7 @@ export * from './types';
 
 // Default export for convenience
 export { DApi as default } from './dapi';
+
+// Browser-only Embedded Signup helper (also available via the d-api-sdk/connect entry point)
+export { DApiConnect } from './connect';
+export type { DApiConnectConfig, StartOptions, StartResult } from './connect';

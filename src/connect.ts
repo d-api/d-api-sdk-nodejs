@@ -1,132 +1,81 @@
-// Browser-only Embedded Signup helper for SaaS integrators.
-//
-//   const connect = new DApiConnect({ publishableKey, appId, configId });
-//   const { connectionId } = await connect.start({ webhookUrl });
-//
-// Opens Meta Embedded Signup via the FB JS SDK (D-API's config_id), then POSTs
-// the OAuth code to the publishable-key onboard endpoint. The key never grants
-// data access.
+// Browser-only helper: opens D-API's hosted Embedded Signup popup and resolves
+// with the provisioned connection. The partner's domain is never registered with
+// Meta — the hosted page (on connect.d-api.cloud, a D-API domain) runs the ES SDK
+// and returns the result over a postMessage handshake.
 
 export interface DApiConnectConfig {
   publishableKey: string;
-  appId: string; // D-API's public Meta App ID
-  configId: string; // D-API's Login-for-Business config_id
-  apiBaseUrl?: string; // default https://api.d-api.cloud
-  sdkVersion?: string; // default v25.0
+  connectBaseUrl?: string; // default https://connect.d-api.cloud
 }
-
 export interface StartOptions {
   webhookUrl?: string;
   webhookMode?: 'normalized' | 'meta_passthrough';
 }
-
 export interface StartResult {
   connectionId: string;
   phoneNumber: string | null;
   status: string;
 }
 
-interface FbLike {
-  init(p: { appId: string; version: string; cookie?: boolean; xfbml?: boolean }): void;
-  login(cb: (r: { authResponse?: { code?: string } | null }) => void, o?: Record<string, unknown>): void;
-}
+const CONNECT_ORIGIN_DEFAULT = 'https://connect.d-api.cloud';
 
 export class DApiConnect {
-  private readonly cfg: Required<Omit<DApiConnectConfig, 'publishableKey'>> & { publishableKey: string };
+  private readonly publishableKey: string;
+  private readonly connectOrigin: string;
 
   constructor(config: DApiConnectConfig) {
-    if (typeof window === 'undefined') {
-      throw new Error('DApiConnect is browser-only');
-    }
-    if (!config.publishableKey || !config.appId || !config.configId) {
-      throw new Error('DApiConnect requires publishableKey, appId and configId');
-    }
-    this.cfg = {
-      publishableKey: config.publishableKey,
-      appId: config.appId,
-      configId: config.configId,
-      apiBaseUrl: (config.apiBaseUrl ?? 'https://api.d-api.cloud').replace(/\/$/, ''),
-      sdkVersion: config.sdkVersion ?? 'v25.0',
-    };
+    if (typeof window === 'undefined') throw new Error('DApiConnect is browser-only');
+    if (!config.publishableKey) throw new Error('DApiConnect requires a publishableKey');
+    this.publishableKey = config.publishableKey;
+    this.connectOrigin = (config.connectBaseUrl ?? CONNECT_ORIGIN_DEFAULT).replace(/\/$/, '');
   }
 
-  async start(options: StartOptions = {}): Promise<StartResult> {
-    const code = await this.openEmbeddedSignup();
-
-    const res = await fetch(`${this.cfg.apiBaseUrl}/api/v1/connections/cloud-api/provider-onboard`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-dapi-publishable-key': this.cfg.publishableKey,
-      },
-      body: JSON.stringify({
-        code,
-        webhookUrl: options.webhookUrl,
-        webhookMode: options.webhookMode,
-      }),
-    });
-
-    const json = (await res.json().catch(() => null)) as
-      | { success: true; data: StartResult }
-      | { success: false; error?: string }
-      | null;
-
-    if (!res.ok || !json || json.success !== true) {
-      throw new Error((json && 'error' in json && json.error) || `Onboard failed (${res.status})`);
+  start(options: StartOptions = {}): Promise<StartResult> {
+    const popup = window.open(`${this.connectOrigin}/connect`, 'dapi-connect', 'width=600,height=760');
+    if (!popup) {
+      return Promise.reject(new Error('Popup bloqueado — permita popups para conectar.'));
     }
 
-    return json.data;
-  }
+    return new Promise<StartResult>((resolve, reject) => {
+      let settled = false;
 
-  private async openEmbeddedSignup(): Promise<string> {
-    const FB = await this.loadSdk();
-
-    return new Promise<string>((resolve, reject) => {
-      FB.login(
-        (r) => {
-          const code = r?.authResponse?.code;
-          if (code) {
-            resolve(code);
-          } else {
-            reject(new Error('Conexão cancelada antes de concluir.'));
-          }
-        },
-        {
-          config_id: this.cfg.configId,
-          response_type: 'code',
-          override_default_response_type: true,
-          extras: { setup: {}, sessionInfoVersion: '3' },
+      const finish = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener('message', onMessage);
+        window.clearInterval(poll);
+        try {
+          popup.close();
+        } catch {
+          /* ignore */
         }
-      );
-    });
-  }
-
-  private loadSdk(): Promise<FbLike> {
-    const w = window as unknown as { FB?: FbLike; fbAsyncInit?: () => void };
-
-    if (w.FB) {
-      return Promise.resolve(w.FB);
-    }
-
-    return new Promise<FbLike>((resolve, reject) => {
-      w.fbAsyncInit = () => {
-        w.FB!.init({ appId: this.cfg.appId, version: this.cfg.sdkVersion, cookie: true, xfbml: false });
-        resolve(w.FB!);
+        fn();
       };
 
-      const id = 'facebook-jssdk';
-      if (document.getElementById(id)) {
-        return; // fbAsyncInit will still fire
-      }
+      const onMessage = (e: MessageEvent) => {
+        // Only trust our hosted page.
+        if (e.origin !== this.connectOrigin || e.source !== popup) return;
+        const msg = e.data as { type?: string; ok?: boolean; data?: StartResult; error?: string };
+        if (msg?.type === 'dapi-connect-ready') {
+          popup.postMessage(
+            {
+              type: 'dapi-connect-init',
+              pk: this.publishableKey,
+              webhookUrl: options.webhookUrl,
+              webhookMode: options.webhookMode,
+            },
+            this.connectOrigin
+          );
+        } else if (msg?.type === 'dapi-connect-result') {
+          finish(() => (msg.ok && msg.data ? resolve(msg.data) : reject(new Error(msg.error || 'Onboarding falhou'))));
+        }
+      };
 
-      const s = document.createElement('script');
-      s.id = id;
-      s.src = 'https://connect.facebook.net/en_US/sdk.js';
-      s.async = true;
-      s.defer = true;
-      s.crossOrigin = 'anonymous';
-      s.onerror = () => reject(new Error('Não foi possível carregar o SDK da Meta (verifique bloqueadores)'));
-      document.body.appendChild(s);
+      const poll = window.setInterval(() => {
+        if (popup.closed && !settled) finish(() => reject(new Error('Conexão cancelada (popup fechado).')));
+      }, 500);
+
+      window.addEventListener('message', onMessage);
     });
   }
 }

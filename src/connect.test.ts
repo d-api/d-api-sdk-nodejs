@@ -1,70 +1,57 @@
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, mock } from "bun:test";
 import { DApiConnect } from "./connect";
 
-const realFetch = globalThis.fetch;
-afterEach(() => {
-  globalThis.fetch = realFetch;
-  (globalThis as any).window = undefined;
-});
+afterEach(() => { (globalThis as any).window = undefined; });
 
-function fakeWindow(code: string | null) {
+// Fake window whose `open` returns a popup, and whose `__emit` simulates the
+// hosted page posting a message (with a controllable origin + source).
+function fakeWindow() {
+  const listeners: Array<(e: any) => void> = [];
+  const popup = { closed: false, close() { this.closed = true; }, postMessage() {} };
   (globalThis as any).window = {
-    FB: {
-      init() {},
-      login(cb: (r: any) => void) {
-        cb({ authResponse: code ? { code } : null });
-      },
+    open: mock(() => popup),
+    addEventListener: (t: string, cb: any) => { if (t === "message") listeners.push(cb); },
+    removeEventListener: (t: string, cb: any) => {
+      const i = listeners.indexOf(cb); if (i >= 0) listeners.splice(i, 1);
     },
-    location: { hostname: "saas.test" },
+    setInterval: () => 0,
+    clearInterval: () => {},
+    __emit: (data: any, origin = "https://connect.d-api.cloud", source: any = popup) =>
+      listeners.forEach((cb) => cb({ origin, source, data })),
   };
+  return { popup, emit: (d: any, o?: string, s?: any) => (globalThis as any).window.__emit(d, o, s) };
 }
 
-describe("DApiConnect.start", () => {
-  it("opens ES, posts the code + webhook, resolves connectionId", async () => {
-    fakeWindow("CODE123");
-    let captured: any = null;
-    globalThis.fetch = (async (url: string, init?: RequestInit) => {
-      captured = { url, init };
-      return new Response(
-        JSON.stringify({
-          success: true,
-          data: { connectionId: "cloud-1", phoneNumber: "+55", status: "connecting" },
-        }),
-        { status: 200 }
-      );
-    }) as typeof fetch;
-
-    const connect = new DApiConnect({
-      publishableKey: "pk_live_x",
-      appId: "APP",
-      configId: "CFG",
-      apiBaseUrl: "https://api.d-api.cloud",
-    });
-    const res = await connect.start({ webhookUrl: "https://saas.test/hook" });
-
+describe("DApiConnect.start (hosted)", () => {
+  it("opens the hosted popup and resolves with the postMessage result", async () => {
+    const { emit } = fakeWindow();
+    const connect = new DApiConnect({ publishableKey: "pk_live_x" });
+    const p = connect.start({ webhookUrl: "https://saas.test/hook" });
+    emit({ type: "dapi-connect-ready" });
+    emit({ type: "dapi-connect-result", ok: true, data: { connectionId: "cloud-1", phoneNumber: "+55", status: "connecting" } });
+    const res = await p;
     expect(res.connectionId).toBe("cloud-1");
-    expect(captured.url).toBe(
-      "https://api.d-api.cloud/api/v1/connections/cloud-api/provider-onboard"
-    );
-    expect(captured.init.headers["x-dapi-publishable-key"]).toBe("pk_live_x");
-    const body = JSON.parse(captured.init.body);
-    expect(body.code).toBe("CODE123");
-    expect(body.webhookUrl).toBe("https://saas.test/hook");
+    expect((globalThis as any).window.open).toHaveBeenCalled();
   });
 
-  it("rejects when the user closes the popup (no code)", async () => {
-    fakeWindow(null);
-    const connect = new DApiConnect({ publishableKey: "pk", appId: "A", configId: "C" });
-    await expect(connect.start()).rejects.toThrow(/cancel|closed|não/i);
+  it("rejects when the hosted page returns an error", async () => {
+    const { emit } = fakeWindow();
+    const connect = new DApiConnect({ publishableKey: "pk" });
+    const p = connect.start();
+    emit({ type: "dapi-connect-ready" });
+    emit({ type: "dapi-connect-result", ok: false, error: "Origin not allowed" });
+    await expect(p).rejects.toThrow(/Origin not allowed/);
   });
 
-  it("rejects on a non-success API response", async () => {
-    fakeWindow("CODE");
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ success: false, error: "Origin not allowed" }), {
-        status: 403,
-      })) as typeof fetch;
-    const connect = new DApiConnect({ publishableKey: "pk", appId: "A", configId: "C" });
-    await expect(connect.start()).rejects.toThrow(/Origin not allowed/);
+  it("ignores messages from an unexpected origin", async () => {
+    const { emit } = fakeWindow();
+    const connect = new DApiConnect({ publishableKey: "pk" });
+    const p = connect.start();
+    emit({ type: "dapi-connect-ready" });
+    // wrong origin — must be ignored:
+    emit({ type: "dapi-connect-result", ok: true, data: { connectionId: "EVIL" } }, "https://evil.com");
+    // correct origin — resolves:
+    emit({ type: "dapi-connect-result", ok: true, data: { connectionId: "cloud-9", phoneNumber: null, status: "connecting" } });
+    expect((await p).connectionId).toBe("cloud-9");
   });
 });

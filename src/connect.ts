@@ -8,6 +8,9 @@ export interface DApiConnectConfig {
   connectBaseUrl?: string; // default https://connect.d-api.cloud
 }
 export interface StartOptions {
+  /** "standard" (default) creates/onboards a new number; "coexistence" keeps the
+   *  WhatsApp Business App on the same number (requires the customer to scan a QR). */
+  mode?: 'standard' | 'coexistence';
   webhookUrl?: string;
   webhookMode?: 'normalized' | 'meta_passthrough';
 }
@@ -61,6 +64,7 @@ export class DApiConnect {
             {
               type: 'dapi-connect-init',
               pk: this.publishableKey,
+              mode: options.mode ?? 'standard',
               webhookUrl: options.webhookUrl,
               webhookMode: options.webhookMode,
             },

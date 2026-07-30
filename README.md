@@ -40,6 +40,56 @@ await dapi.messages.sendText({
 });
 ```
 
+## WhatsApp API Oficial: connect (browser)
+
+`d-api-sdk/connect` is the browser-only entry that connects a customer's **official**
+number (Cloud API) from inside your own SaaS. It opens D-API's hosted Embedded Signup
+popup and resolves with the provisioned connection — your domain never has to be
+registered with Meta.
+
+```typescript
+import { DApiConnect } from 'd-api-sdk/connect';
+
+const connect = new DApiConnect({ publishableKey: 'pk_live_…' });
+
+const result = await connect.start({
+  mode: 'standard',              // or 'coexistence' (keep the WhatsApp Business App)
+  webhookUrl: 'https://your-saas.com/hooks/dapi',
+  webhookMode: 'normalized',     // default; or 'meta_passthrough'
+});
+```
+
+### `webhookMode`
+
+| value | payload delivered to `webhookUrl` |
+|---|---|
+| `normalized` (default) | D-API's canonical event — identical to an unofficial connection, so one handler serves both |
+| `meta_passthrough` | Meta's raw Cloud API webhook body, untouched |
+
+It can be changed later with `PATCH /api/v1/connections/cloud-api/:id`.
+
+### Result
+
+```typescript
+{
+  connectionId: string;
+  phoneNumber: string | null;
+  status: string;
+  accessToken?: string;          // the connection's Meta token, decrypted
+  accessTokenKind?: 'permanent' | 'long_lived' | 'short_lived' | 'unknown';
+  accessTokenLabel?: string;     // pt-BR one-liner, safe to display
+  accessTokenExpiresAt?: string | null; // ISO-8601, null when permanent
+}
+```
+
+Embedded Signup issues a **permanent** token (`accessTokenKind: 'permanent'`,
+`accessTokenExpiresAt: null`), which is the normal case here.
+
+> ⚠️ `accessToken` is a **secret** — it can send messages and manage the WABA. Forward
+> it to your backend; never log it or persist it in the browser. If you'd rather it
+> never touch the browser, ignore the field and fetch it server-side from
+> `GET /api/v1/connections/cloud-api/:id/access-token` with your secret API key.
+
 ## Modules
 
 ### Sessions

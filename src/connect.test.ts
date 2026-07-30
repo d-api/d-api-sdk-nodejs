@@ -34,6 +34,45 @@ describe("DApiConnect.start (hosted)", () => {
     expect((globalThis as any).window.open).toHaveBeenCalled();
   });
 
+  it("forwards webhookMode to the hosted page on init", async () => {
+    const { popup, emit } = fakeWindow();
+    const sent: any[] = [];
+    popup.postMessage = (msg: any) => sent.push(msg);
+    const connect = new DApiConnect({ publishableKey: "pk_live_x" });
+    const p = connect.start({ webhookUrl: "https://saas.test/hook", webhookMode: "meta_passthrough" });
+    emit({ type: "dapi-connect-ready" });
+    expect(sent[0]).toMatchObject({
+      type: "dapi-connect-init",
+      webhookUrl: "https://saas.test/hook",
+      webhookMode: "meta_passthrough",
+    });
+    emit({ type: "dapi-connect-result", ok: true, data: { connectionId: "cloud-1", phoneNumber: null, status: "connected" } });
+    await p;
+  });
+
+  it("resolves with the Meta access token when the hosted page sends one", async () => {
+    const { emit } = fakeWindow();
+    const connect = new DApiConnect({ publishableKey: "pk_live_x" });
+    const p = connect.start();
+    emit({ type: "dapi-connect-ready" });
+    emit({
+      type: "dapi-connect-result",
+      ok: true,
+      data: {
+        connectionId: "cloud-1",
+        phoneNumber: "+5511999999999",
+        status: "connected",
+        accessToken: "EAA-token",
+        accessTokenKind: "long_lived",
+        accessTokenExpiresAt: "2026-09-01T00:00:00.000Z",
+      },
+    });
+    const res = await p;
+    expect(res.accessToken).toBe("EAA-token");
+    expect(res.accessTokenKind).toBe("long_lived");
+    expect(res.accessTokenExpiresAt).toBe("2026-09-01T00:00:00.000Z");
+  });
+
   it("rejects when the hosted page returns an error", async () => {
     const { emit } = fakeWindow();
     const connect = new DApiConnect({ publishableKey: "pk" });

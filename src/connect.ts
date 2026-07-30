@@ -11,13 +11,35 @@ export interface StartOptions {
   /** "standard" (default) creates/onboards a new number; "coexistence" keeps the
    *  WhatsApp Business App on the same number (requires the customer to scan a QR). */
   mode?: 'standard' | 'coexistence';
+  /** Where this connection's events are delivered. */
   webhookUrl?: string;
+  /** Shape of those events: "normalized" (default) sends D-API's canonical event
+   *  format — the same payloads as an unofficial connection, so one handler serves
+   *  both. "meta_passthrough" forwards Meta's raw Cloud API webhook body untouched,
+   *  for callers who already parse Meta's format. */
   webhookMode?: 'normalized' | 'meta_passthrough';
 }
+
+/** What kind of Meta token `accessToken` is:
+ *  - `permanent`   — never expires (System User / business integration token)
+ *  - `long_lived`  — the ~60-day token an Embedded Signup produces
+ *  - `short_lived` — a ~1h code-exchange token
+ *  - `unknown`     — Meta's /debug_token could not be reached */
+export type AccessTokenKind = 'permanent' | 'long_lived' | 'short_lived' | 'unknown';
+
 export interface StartResult {
   connectionId: string;
   phoneNumber: string | null;
   status: string;
+  /** The connection's Meta access token, decrypted. SECRET — it can send messages
+   *  and manage the WABA. Send it to your backend; never log it or persist it in
+   *  the browser. Absent when the hosted page couldn't produce one. */
+  accessToken?: string;
+  accessTokenKind?: AccessTokenKind;
+  /** pt-BR one-liner describing the token (safe to show in a UI). */
+  accessTokenLabel?: string;
+  /** ISO-8601 expiry, or null when the token never expires. */
+  accessTokenExpiresAt?: string | null;
 }
 
 const CONNECT_ORIGIN_DEFAULT = 'https://connect.d-api.cloud';
@@ -33,6 +55,11 @@ export class DApiConnect {
     this.connectOrigin = (config.connectBaseUrl ?? CONNECT_ORIGIN_DEFAULT).replace(/\/$/, '');
   }
 
+  /**
+   * Open the hosted Embedded Signup popup and resolve once the connection is
+   * provisioned. The result carries the connection's Meta access token — treat
+   * it as a secret (see {@link StartResult.accessToken}).
+   */
   start(options: StartOptions = {}): Promise<StartResult> {
     const popup = window.open(`${this.connectOrigin}/connect`, 'dapi-connect', 'width=600,height=760');
     if (!popup) {

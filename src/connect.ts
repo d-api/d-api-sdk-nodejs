@@ -18,6 +18,47 @@ export interface StartOptions {
    *  both. "meta_passthrough" forwards Meta's raw Cloud API webhook body untouched,
    *  for callers who already parse Meta's format. */
   webhookMode?: 'normalized' | 'meta_passthrough';
+  /**
+   * Free-form JSON of your own (typically `{ tenantId }`), stored with the
+   * connection and echoed back in the `session.created` webhook. It is what
+   * lets your backend match the new connection to the account that started the
+   * flow — useful because on MOBILE the popup opens as a tab with no usable
+   * `window.opener`, so the postMessage this promise waits on never arrives and
+   * the webhook is your only notification.
+   *
+   * It rides in the URL of Meta's authorize page, so it is capped:
+   * {@link METADATA_MAX_BYTES} bytes of serialized JSON. Bigger throws, right
+   * here, before any window is opened.
+   */
+  metadata?: Record<string, unknown>;
+}
+
+/** Max size, in bytes of serialized JSON, of {@link StartOptions.metadata}. */
+export const METADATA_MAX_BYTES = 512;
+
+/** Bytes of a string as UTF-8, without depending on Buffer (browser build). */
+function utf8Bytes(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
+
+/**
+ * Fail fast, in the partner's own code, on metadata that the hosted page would
+ * reject after the popup is already open — where the error is invisible to them.
+ */
+function assertValidMetadata(metadata: unknown): void {
+  if (metadata === undefined || metadata === null) return;
+  if (typeof metadata !== 'object' || Array.isArray(metadata)) {
+    throw new Error('metadata deve ser um objeto JSON');
+  }
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(metadata);
+  } catch {
+    throw new Error('metadata deve ser serializável em JSON');
+  }
+  if (utf8Bytes(serialized) > METADATA_MAX_BYTES) {
+    throw new Error(`metadata acima do limite de ${METADATA_MAX_BYTES} bytes serializados`);
+  }
 }
 
 /** What kind of Meta token `accessToken` is:
@@ -59,8 +100,16 @@ export class DApiConnect {
    * Open the hosted Embedded Signup popup and resolve once the connection is
    * provisioned. The result carries the connection's Meta access token — treat
    * it as a secret (see {@link StartResult.accessToken}).
+   *
+   * The same result is ALSO delivered as a `session.created` webhook to the
+   * `webhookUrl` of the connection, always — you don't opt in. On mobile the
+   * popup opens as a tab whose `window.opener` we cannot reach, so this promise
+   * may reject with "Conexão cancelada" even though the connection exists; the
+   * webhook is what tells you it did. Pass {@link StartOptions.metadata} to
+   * correlate it with your own account.
    */
   start(options: StartOptions = {}): Promise<StartResult> {
+    assertValidMetadata(options.metadata);
     const popup = window.open(`${this.connectOrigin}/connect`, 'dapi-connect', 'width=600,height=760');
     if (!popup) {
       return Promise.reject(new Error('Popup bloqueado — permita popups para conectar.'));
@@ -94,6 +143,7 @@ export class DApiConnect {
               mode: options.mode ?? 'standard',
               webhookUrl: options.webhookUrl,
               webhookMode: options.webhookMode,
+              metadata: options.metadata,
             },
             this.connectOrigin
           );

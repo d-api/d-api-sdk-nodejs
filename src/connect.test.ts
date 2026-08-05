@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, mock } from "bun:test";
-import { DApiConnect } from "./connect";
+import { DApiConnect, METADATA_MAX_BYTES } from "./connect";
 
 afterEach(() => { (globalThis as any).window = undefined; });
 
@@ -92,5 +92,42 @@ describe("DApiConnect.start (hosted)", () => {
     // correct origin — resolves:
     emit({ type: "dapi-connect-result", ok: true, data: { connectionId: "cloud-9", phoneNumber: null, status: "connecting" } });
     expect((await p).connectionId).toBe("cloud-9");
+  });
+});
+
+describe("DApiConnect.start (metadata)", () => {
+  it("forwards metadata to the hosted page on init", async () => {
+    const { popup, emit } = fakeWindow();
+    const sent: any[] = [];
+    popup.postMessage = (msg: any) => sent.push(msg);
+    const connect = new DApiConnect({ publishableKey: "pk_live_x" });
+    const p = connect.start({ metadata: { tenantId: "t-9" } });
+    emit({ type: "dapi-connect-ready" });
+    expect(sent[0]).toMatchObject({ type: "dapi-connect-init", metadata: { tenantId: "t-9" } });
+    emit({ type: "dapi-connect-result", ok: true, data: { connectionId: "cloud-1", phoneNumber: null, status: "connected" } });
+    await p;
+  });
+
+  // Integrações em 1.2.0 e anteriores não passam metadata: o init segue igual.
+  it("omits metadata when the caller passes none", async () => {
+    const { popup, emit } = fakeWindow();
+    const sent: any[] = [];
+    popup.postMessage = (msg: any) => sent.push(msg);
+    const connect = new DApiConnect({ publishableKey: "pk_live_x" });
+    const p = connect.start({ webhookUrl: "https://saas.test/hook" });
+    emit({ type: "dapi-connect-ready" });
+    expect(sent[0].metadata).toBeUndefined();
+    emit({ type: "dapi-connect-result", ok: true, data: { connectionId: "cloud-1", phoneNumber: null, status: "connected" } });
+    await p;
+  });
+
+  it("throws before opening the popup when metadata is invalid or too big", () => {
+    fakeWindow();
+    const connect = new DApiConnect({ publishableKey: "pk_live_x" });
+    expect(() => connect.start({ metadata: ["a"] as any })).toThrow(/objeto JSON/);
+    expect(() =>
+      connect.start({ metadata: { blob: "x".repeat(METADATA_MAX_BYTES) } })
+    ).toThrow(/limite/);
+    expect((globalThis as any).window.open).not.toHaveBeenCalled();
   });
 });

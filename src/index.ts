@@ -19,7 +19,12 @@ export {
   VoiceModule,
   SmsModule,
   AccountWebhooksModule,
+  CallsModule,
 } from './modules';
+
+// Live call media (WebSocket or WebRTC)
+export { LiveCall, type LiveCallEvents } from './calls/live-call';
+export { IncomingCalls, type IncomingCall, type IncomingCallsEvents } from './calls/incoming';
 
 // Type exports
 export * from './types';

@@ -54,6 +54,16 @@ export class DApiClient {
     return url.toString();
   }
 
+  /**
+   * URL of a public WebSocket route (e.g. /voip/events). Browsers can't set
+   * headers on a WebSocket, so the API key travels as `?token=`.
+   */
+  socketUrl(path: string, query: Record<string, string> = {}): string {
+    const url = new URL(this.buildUrl(path, { ...query, token: this.apiKey }));
+    url.protocol = url.protocol === 'http:' ? 'ws:' : 'wss:';
+    return url.toString();
+  }
+
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
     const { method = 'GET', body, query, headers = {} } = options;
 

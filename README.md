@@ -40,6 +40,88 @@ await dapi.messages.sendText({
 });
 ```
 
+## Live calls (real-time audio)
+
+Place or answer a WhatsApp call, or a live phone call (URA), and talk in real
+time. **WebRTC is the recommended transport**: the audio goes over UDP with Opus
+and FEC, which copes far better with packet loss and jitter. It falls back to the
+WebSocket on its own when WebRTC can't connect, and comes back when it can.
+
+### Browser: microphone and speaker handled for you
+
+Your backend starts the call with the API key and hands the browser only
+`{ callId, wsUrl }`; the browser opens the media:
+
+```typescript
+// your backend (Node): never expose the API key to the browser
+const { callId, wsUrl } = await dapi.calls.stream({ sessionId: 'my-session', phone: '5511999999999' });
+
+// the browser
+import { LiveCall } from 'd-api-sdk';
+const call = await LiveCall.connect(callId, wsUrl, { transport: 'webrtc' });
+call.on('event', (e) => console.log(e.type));                // calling, ringing, accepted, ended...
+call.on('transport', (t) => console.log('audio via', t.transport, t.reason ?? ''));
+call.mute(true);
+call.hangup();
+```
+
+In the browser the SDK asks for the microphone and plays the other side itself
+(`audio: 'device'`, the browser default). Call `connect()` from a user gesture
+(a click), so the browser lets audio play.
+
+### Node: raw PCM for bots and AI agents
+
+```bash
+npm install d-api-sdk @roamhq/wrtc   # @roamhq/wrtc only for transport: 'webrtc'
+```
+
+```typescript
+const call = await dapi.calls.start({ sessionId: 'my-session', phone: '5511999999999' }, { transport: 'webrtc' });
+
+call.on('audio', (frame) => bot.hear(frame));   // Int16Array, 16 kHz, mono, 20 ms (320 samples)
+bot.on('speech', (pcm) => call.sendAudio(pcm)); // Int16Array or s16le bytes, any chunk size, real-time pace
+call.on('ended', (e) => console.log('ended', e.reason));
+```
+
+Audio sent before the other side answers (`accepted`) is dropped. Without
+`@roamhq/wrtc`, `transport: 'webrtc'` stays on the WebSocket. On Node < 22 (no
+global WebSocket) install `ws` or pass `{ WebSocket }`.
+
+### Incoming calls
+
+```typescript
+const incoming = await dapi.calls.listen({ sessionIds: ['my-session'] });
+incoming.on('call', async (offer) => {
+  const call = await offer.answer({ transport: 'webrtc' }); // or: await offer.reject()
+});
+incoming.on('withdrawn', (e) => console.log('stopped ringing', e.callId));
+```
+
+### Live phone calls (URA)
+
+```typescript
+const call = await dapi.voice.live({ to: '5511999999999' }, { transport: 'webrtc' });
+```
+
+### Options and events
+
+| Option | Default | |
+|---|---|---|
+| `transport` | `'websocket'` | `'webrtc'` (recommended) moves only the audio to WebRTC; control stays on the WebSocket |
+| `fallback` | `true` | Stay on the WebSocket when WebRTC fails; `false` fails the call instead |
+| `audio` | `'device'` in browsers, `'pcm'` on Node | Who handles the audio: the SDK (mic/speaker) or your code |
+| `webrtcConnectTimeoutMs` | `10000` | Time for WebRTC to connect before falling back |
+| `resume` | `true` | Reconnect a dropped socket without losing the call |
+
+| Event | Payload |
+|---|---|
+| `event` | Lifecycle event as D-API sends it: `calling`, `ringing`, `accepted`, `dtmf` (URA), `ended`, `not_answered` |
+| `audio` | 20 ms of the other side (WebSocket, or WebRTC on Node) |
+| `transport` | `{ transport, reason? }` when the audio moves between WebSocket and WebRTC |
+| `ended` | The call is over |
+| `recording` | `{ url, files }` after the call |
+| `error` / `close` | Server error / socket closed for good |
+
 ## WhatsApp API Oficial: connect (browser)
 
 `d-api-sdk/connect` is the browser-only entry that connects a customer's **official**

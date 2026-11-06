@@ -11,3 +11,4 @@ export { IntegrationsModule } from './integrations';
 export { VoiceModule } from './voice';
 export { SmsModule } from './sms';
 export { AccountWebhooksModule } from './account-webhooks';
+export { CallsModule } from './calls';

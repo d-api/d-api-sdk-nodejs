@@ -62,6 +62,26 @@ class VoipIO extends AudioWorkletProcessor {
 registerProcessor('voip-io', VoipIO);
 `;
 
+export interface DeviceAudioOptions {
+  microphoneDeviceId?: string;
+  speakerDeviceId?: string;
+  workletUrl?: string;
+}
+
+interface AudioContextWithSink extends AudioContext {
+  setSinkId?: (id: string) => Promise<void>;
+}
+
+/** Best effort: an unsupported browser or an unplugged device keeps the default output. */
+export async function routeToSpeaker(target: { setSinkId?: (id: string) => Promise<void> }, deviceId?: string): Promise<void> {
+  if (!deviceId || !target.setSinkId) return;
+  try {
+    await target.setSinkId(deviceId);
+  } catch {
+    // keep the default output
+  }
+}
+
 /**
  * Microphone and speaker for a call in the browser, in the call's PCM format.
  * The microphone stream is shared with the WebRTC transport, so muting it
@@ -71,19 +91,28 @@ export class BrowserDeviceAudio {
   private constructor(
     private readonly ctx: AudioContext,
     private readonly node: AudioWorkletNode,
-    readonly microphone: MediaStream
+    readonly microphone: MediaStream,
+    private readonly speaker?: string
   ) {}
 
-  static async open(onMicFrame: (frame: Int16Array) => void): Promise<BrowserDeviceAudio> {
+  static async open(onMicFrame: (frame: Int16Array) => void, options: DeviceAudioOptions = {}): Promise<BrowserDeviceAudio> {
     const microphone = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      audio: {
+        deviceId: options.microphoneDeviceId ? { exact: options.microphoneDeviceId } : undefined,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
     });
-    const ctx = new AudioContext({ sampleRate: 16000 });
-    const url = URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: 'application/javascript' }));
+    const ctx = new AudioContext({ sampleRate: 16000 }) as AudioContextWithSink;
+    await routeToSpeaker(ctx, options.speakerDeviceId);
     try {
-      await ctx.audioWorklet.addModule(url);
-    } finally {
-      URL.revokeObjectURL(url);
+      await loadWorklet(ctx, options.workletUrl);
+    } catch (err) {
+      for (const track of microphone.getTracks()) track.stop();
+      void ctx.close();
+      throw err;
     }
     const node = new AudioWorkletNode(ctx, 'voip-io', {
       numberOfInputs: 1,
@@ -96,7 +125,12 @@ export class BrowserDeviceAudio {
       if (e.data?.kind === 'out') onMicFrame(new Int16Array(e.data.pcm));
     };
     await ctx.resume(); // created inside the user's click, so the browser allows it
-    return new BrowserDeviceAudio(ctx, node, microphone);
+    return new BrowserDeviceAudio(ctx, node, microphone, options.speakerDeviceId);
+  }
+
+  /** The speaker chosen for the call, for the WebRTC audio element to follow. */
+  get speakerDeviceId(): string | undefined {
+    return this.speaker;
   }
 
   /** Queue 20 ms of the other side's audio for the speaker. */
@@ -113,5 +147,18 @@ export class BrowserDeviceAudio {
     for (const track of this.microphone.getTracks()) track.stop();
     this.node.disconnect();
     void this.ctx.close();
+  }
+}
+
+async function loadWorklet(ctx: AudioContext, workletUrl?: string): Promise<void> {
+  if (workletUrl) {
+    await ctx.audioWorklet.addModule(workletUrl);
+    return;
+  }
+  const url = URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: 'application/javascript' }));
+  try {
+    await ctx.audioWorklet.addModule(url);
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }

@@ -50,6 +50,16 @@ export interface CallMediaOptions {
    * Default: `device` in the browser, `pcm` on Node.
    */
   audio?: 'device' | 'pcm';
+  /** Browser, `audio: 'device'`: microphone to use (a `deviceId` from `enumerateDevices`). Default: the system's. */
+  microphoneDeviceId?: string;
+  /** Browser, `audio: 'device'`: speaker to use (a `deviceId`, where the browser supports `setSinkId`). Default: the system's. */
+  speakerDeviceId?: string;
+  /**
+   * Browser, `audio: 'device'`: URL of the audio worklet module. By default the
+   * SDK loads its own from a `blob:` URL, which a strict CSP (e.g. Chrome
+   * extensions) refuses; host the worklet and point here instead.
+   */
+  workletUrl?: string;
 }
 
 /** Lifecycle event of the call, as sent by D-API (`calling`, `ringing`, `accepted`, `ended`, ...). */

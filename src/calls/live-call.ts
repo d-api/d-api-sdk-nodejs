@@ -80,7 +80,7 @@ export class LiveCall extends Emitter<LiveCallEvents> {
   private muted = false;
   private closedByUs = false;
   private droppedAt: number | null = null;
-  private readonly opts: Required<Omit<CallMediaOptions, 'WebSocket'>>;
+  private readonly opts: Required<Pick<CallMediaOptions, 'transport' | 'fallback' | 'webrtcConnectTimeoutMs' | 'resume' | 'audio'>>;
 
   private constructor(
     readonly callId: string,
@@ -106,7 +106,11 @@ export class LiveCall extends Emitter<LiveCallEvents> {
     const call = new LiveCall(callId, url, WebSocketImpl, options);
     if (call.opts.audio === 'device') {
       // Asks for the microphone before dialling the media: a refusal fails here, not mid-call.
-      call.device = await BrowserDeviceAudio.open((frame) => call.onMicFrame(frame));
+      call.device = await BrowserDeviceAudio.open((frame) => call.onMicFrame(frame), {
+        microphoneDeviceId: options.microphoneDeviceId,
+        speakerDeviceId: options.speakerDeviceId,
+        workletUrl: options.workletUrl,
+      });
     }
     try {
       await call.open();
@@ -257,7 +261,7 @@ export class LiveCall extends Emitter<LiveCallEvents> {
       const config = await this.signal('webrtc.config', { type: 'webrtc.config' });
       const iceServers = (config.iceServers as IceServer[]) ?? [];
       const rtc: WebRtcMedia = this.device
-        ? await BrowserWebRtcMedia.create(iceServers, this.device.microphone)
+        ? await BrowserWebRtcMedia.create(iceServers, this.device.microphone, this.device.speakerDeviceId)
         : await NodeWebRtcMedia.create(iceServers, (frame) => {
             if (this.media === 'webrtc') this.emit('audio', frame);
           });

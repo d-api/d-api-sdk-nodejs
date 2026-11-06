@@ -13,6 +13,7 @@ import {
   VoiceModule,
   SmsModule,
   AccountWebhooksModule,
+  CallsModule,
 } from './modules';
 
 export interface DApiConfig extends DApiClientConfig {}
@@ -111,6 +112,11 @@ export class DApi {
    */
   public readonly accountWebhooks: AccountWebhooksModule;
 
+  /**
+   * Calls module - WhatsApp live calls with real-time audio (WebSocket or WebRTC)
+   */
+  public readonly calls: CallsModule;
+
   constructor(config: DApiConfig) {
     this.client = new DApiClient(config);
 
@@ -127,6 +133,7 @@ export class DApi {
     this.voice = new VoiceModule(this.client);
     this.sms = new SmsModule(this.client);
     this.accountWebhooks = new AccountWebhooksModule(this.client);
+    this.calls = new CallsModule(this.client);
   }
 
   /**

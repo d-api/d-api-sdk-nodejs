@@ -39,6 +39,8 @@ const RECONNECT_BUDGET_MS = 18000;
 const RECONNECT_MAX_DELAY_MS = 2000;
 // Normal close, policy violation (auth): the server will not take the call back.
 const FINAL_CLOSE_CODES = new Set([1000, 1008]);
+// How long to wait for the server before giving up on hanging up an abandoned call.
+const ABANDON_TIMEOUT_MS = 5000;
 
 type SignalType = 'webrtc.config' | 'webrtc.answer';
 interface Pending {
@@ -55,6 +57,47 @@ function withQuery(url: string, key: string, value: string): string {
   const u = new URL(url);
   u.searchParams.set(key, value);
   return u.toString();
+}
+
+/**
+ * Hang up a call we can't take, best-effort and bounded: never throws. Without
+ * `resume`, so the server ends it on close. It waits for the first event: the
+ * server ignores frames until it has authorized the socket.
+ */
+function abandonCall(wsUrl: string, WebSocketImpl: WsCtor): Promise<void> {
+  return new Promise((resolve) => {
+    let ws: WsLike;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      clearTimeout(timer);
+      try {
+        ws?.close(1000, 'client_abandon');
+      } catch {
+        // already closed
+      }
+      resolve();
+    };
+    try {
+      ws = new WebSocketImpl(wsUrl);
+    } catch {
+      resolve();
+      return;
+    }
+    timer = setTimeout(finish, ABANDON_TIMEOUT_MS);
+    ws.addEventListener('message', (event: { data: unknown }) => {
+      if (typeof event.data !== 'string') return;
+      try {
+        ws.send(JSON.stringify({ type: 'hangup' }));
+      } finally {
+        finish();
+      }
+    });
+    ws.addEventListener('error', finish);
+    ws.addEventListener('close', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 /**
@@ -106,11 +149,17 @@ export class LiveCall extends Emitter<LiveCallEvents> {
     const call = new LiveCall(callId, url, WebSocketImpl, options);
     if (call.opts.audio === 'device') {
       // Asks for the microphone before dialling the media: a refusal fails here, not mid-call.
-      call.device = await BrowserDeviceAudio.open((frame) => call.onMicFrame(frame), {
-        microphoneDeviceId: options.microphoneDeviceId,
-        speakerDeviceId: options.speakerDeviceId,
-        workletUrl: options.workletUrl,
-      });
+      try {
+        call.device = await BrowserDeviceAudio.open((frame) => call.onMicFrame(frame), {
+          microphoneDeviceId: options.microphoneDeviceId,
+          speakerDeviceId: options.speakerDeviceId,
+          workletUrl: options.workletUrl,
+        });
+      } catch (err) {
+        // The call is already ringing on the other side; without this it rings on with nobody here.
+        await abandonCall(wsUrl, WebSocketImpl);
+        throw err;
+      }
     }
     try {
       await call.open();

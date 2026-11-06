@@ -59,3 +59,9 @@ export interface VoiceBulkResponse {
   scheduled?: boolean;
   scheduledAt?: string;
 }
+
+/** Live URA call: a phone call whose audio you stream in real time. Billed per minute from the wallet. */
+export interface VoiceLiveCallOptions {
+  /** Destination phone number (DDI + DDD + number). */
+  to: string;
+}

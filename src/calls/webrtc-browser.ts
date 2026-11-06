@@ -1,5 +1,6 @@
 import type { IceServer, WebRtcMedia } from './webrtc-node';
 import { DISCONNECT_GRACE_MS, WebRtcSetupError, dropDecision } from './webrtc-node';
+import { routeToSpeaker } from './browser-audio';
 
 const GATHER_TIMEOUT_MS = 3000;
 
@@ -18,9 +19,10 @@ export class BrowserWebRtcMedia implements WebRtcMedia {
     this.speaker.autoplay = true;
   }
 
-  static async create(iceServers: IceServer[], microphone: MediaStream): Promise<BrowserWebRtcMedia> {
+  static async create(iceServers: IceServer[], microphone: MediaStream, speakerDeviceId?: string): Promise<BrowserWebRtcMedia> {
     const pc = new RTCPeerConnection({ iceServers });
     const media = new BrowserWebRtcMedia(pc);
+    await routeToSpeaker(media.speaker as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }, speakerDeviceId);
     for (const track of microphone.getAudioTracks()) pc.addTrack(track, microphone);
     pc.ontrack = (event) => {
       media.speaker.srcObject = event.streams[0] ?? new MediaStream([event.track]);

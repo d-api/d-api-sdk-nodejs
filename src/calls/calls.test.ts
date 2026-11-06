@@ -1,5 +1,6 @@
-import { describe, expect, it, jest } from 'bun:test';
+import { afterEach, describe, expect, it, jest, spyOn } from 'bun:test';
 import { LiveCall } from './live-call';
+import { BrowserDeviceAudio } from './browser-audio';
 import { dropDecision } from './webrtc-node';
 import { Downsampler, FRAME_SAMPLES, FrameAssembler, bytesToSamples, createSinkFramer } from './pcm';
 
@@ -17,6 +18,7 @@ class FakeServerSocket {
   constructor(readonly url: string) {
     FakeServerSocket.last = this;
     queueMicrotask(() => {
+      if (this.readyState !== 0) return; // closed before it opened
       this.readyState = 1;
       this.fire('open', {});
     });
@@ -111,6 +113,48 @@ describe('createSinkFramer', () => {
     // 10 ms + 1 s of audio = 16160 samples = 50 full frames at 16 kHz
     expect(frames).toHaveLength(50);
     expect(frames[49][0]).toBe(100);
+  });
+});
+
+describe('microphone refused', () => {
+  // Bug: the mic was asked before the socket opened, so a refusal threw and the
+  // placed call kept ringing the contact with nobody on our side to hang up.
+  afterEach(() => jest.restoreAllMocks());
+
+  function refuseMic() {
+    const denied = Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' });
+    spyOn(BrowserDeviceAudio, 'open').mockRejectedValue(denied);
+  }
+
+  it('hangs up the placed call once the server is ready, then fails with the mic error', async () => {
+    refuseMic();
+    FakeServerSocket.last = null;
+    const connecting = LiveCall.connect('C1', WS_URL, { WebSocket: FakeServerSocket, audio: 'device' });
+    await tick();
+    const server = FakeServerSocket.last!;
+    expect(new URL(server.url).searchParams.get('resume')).toBeNull();
+    expect(server.controls()).toEqual([]); // nothing before the server is ready
+    server.pushText({ type: 'calling' });
+
+    await expect(connecting).rejects.toMatchObject({ name: 'NotAllowedError' });
+    expect(server.controls()).toEqual([{ type: 'hangup' }]);
+    expect(server.readyState).toBe(3);
+  });
+
+  it('gives up on a silent server instead of hanging', async () => {
+    refuseMic();
+    jest.useFakeTimers();
+    try {
+      const connecting = LiveCall.connect('C1', WS_URL, { WebSocket: FakeServerSocket, audio: 'device' });
+      const outcome = connecting.catch((err: Error) => err.name);
+      await Promise.resolve();
+      await Promise.resolve();
+      jest.advanceTimersByTime(5000);
+      expect(await outcome).toBe('NotAllowedError');
+      expect(FakeServerSocket.last!.readyState).toBe(3);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

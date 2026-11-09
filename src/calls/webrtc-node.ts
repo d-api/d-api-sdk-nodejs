@@ -1,4 +1,5 @@
 import { createSinkFramer } from './pcm';
+import type { CallClientStats } from './webrtc-stats';
 
 // Loaded only when a call asks for WebRTC, so the SDK never requires it.
 const WRTC_MODULE = '@roamhq/wrtc';
@@ -39,6 +40,8 @@ export interface WebRtcMedia {
   onDrop(listener: (reason: string) => void): void;
   write(frame: Int16Array): void;
   close(): void;
+  /** What the local peer measured of the audio it received; transports without it send nothing. */
+  stats?(): Promise<CallClientStats | null>;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- @roamhq/wrtc ships no types */

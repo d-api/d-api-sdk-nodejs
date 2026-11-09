@@ -41,6 +41,8 @@ const RECONNECT_MAX_DELAY_MS = 2000;
 const FINAL_CLOSE_CODES = new Set([1000, 1008]);
 // How long to wait for the server before giving up on hanging up an abandoned call.
 const ABANDON_TIMEOUT_MS = 5000;
+// Cumulative, so the server keeps only the latest; the last one before hangup is at most this old.
+const STATS_INTERVAL_MS = 5000;
 
 type SignalType = 'webrtc.config' | 'webrtc.answer';
 interface Pending {
@@ -115,6 +117,7 @@ export class LiveCall extends Emitter<LiveCallEvents> {
   private answered = false;
   private retryDelay = RETRY_MIN_MS;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
+  private statsTimer: ReturnType<typeof setInterval> | undefined;
   /** The caller was already told the call is on the WebSocket and why. */
   private fallbackReported = false;
   private readonly uplink: FrameAssembler;
@@ -325,6 +328,7 @@ export class LiveCall extends Emitter<LiveCallEvents> {
       this.fallbackReported = false;
       this.media = 'webrtc';
       this.sendControl({ type: 'media', transport: 'webrtc' });
+      this.startStats(rtc);
       this.emit('transport', { transport: 'webrtc' });
     } catch (err) {
       this.fallBack(err instanceof WebRtcSetupError ? err.reason : 'webrtc_error', err as Error);
@@ -375,7 +379,21 @@ export class LiveCall extends Emitter<LiveCallEvents> {
     this.retryTimer = undefined;
   }
 
+  private startStats(rtc: WebRtcMedia): void {
+    clearInterval(this.statsTimer);
+    if (!rtc.stats) return;
+    this.statsTimer = setInterval(() => void this.reportStats(rtc), STATS_INTERVAL_MS);
+  }
+
+  private async reportStats(rtc: WebRtcMedia): Promise<void> {
+    const stats = await rtc.stats?.().catch(() => null);
+    if (!stats || this.rtc !== rtc || this.media !== 'webrtc') return;
+    this.sendControl({ type: 'webrtc.stats', stats });
+  }
+
   private teardownRtc(): void {
+    clearInterval(this.statsTimer);
+    this.statsTimer = undefined;
     this.rtc?.close();
     this.rtc = null;
   }

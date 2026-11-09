@@ -1,6 +1,7 @@
 import type { IceServer, WebRtcMedia } from './webrtc-node';
 import { DISCONNECT_GRACE_MS, WebRtcSetupError, dropDecision } from './webrtc-node';
 import { routeToSpeaker } from './browser-audio';
+import { summarizeStats, usesBluetooth, type CallClientStats } from './webrtc-stats';
 
 const GATHER_TIMEOUT_MS = 3000;
 
@@ -13,6 +14,7 @@ export class BrowserWebRtcMedia implements WebRtcMedia {
   private dropListener: ((reason: string) => void) | null = null;
   private dropTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly speaker: HTMLAudioElement;
+  private bluetooth: boolean | undefined;
 
   private constructor(private readonly pc: RTCPeerConnection) {
     this.speaker = new Audio();
@@ -29,6 +31,9 @@ export class BrowserWebRtcMedia implements WebRtcMedia {
       void media.speaker.play().catch(() => undefined);
     };
     pc.addEventListener('connectionstatechange', () => media.watchDrop(pc.connectionState));
+    void usesBluetooth(microphone, speakerDeviceId)
+      .then((bluetooth) => (media.bluetooth = bluetooth))
+      .catch(() => undefined);
     return media;
   }
 
@@ -81,6 +86,19 @@ export class BrowserWebRtcMedia implements WebRtcMedia {
     clearTimeout(this.dropTimer);
     if (drop === 'now') this.dropListener?.(`webrtc_${state}`);
     else if (drop === 'soon') this.dropTimer = setTimeout(() => this.dropListener?.('webrtc_disconnected'), DISCONNECT_GRACE_MS);
+  }
+
+  /** Never throws: a quality summary must not disturb the call. */
+  async stats(): Promise<CallClientStats | null> {
+    try {
+      const report: Array<Record<string, unknown>> = [];
+      (await this.pc.getStats()).forEach((stat) => report.push(stat));
+      const summary = summarizeStats(report);
+      if (summary && this.bluetooth !== undefined) summary.bluetooth = this.bluetooth;
+      return summary;
+    } catch {
+      return null;
+    }
   }
 
   /** The microphone track carries the audio; nothing to push by hand. */

@@ -28,7 +28,10 @@ export interface LiveCallEvents {
   close: { code: number; reason: string };
 }
 
-const SIGNAL_TIMEOUT_MS = 8000;
+// The audio flows on the WebSocket while WebRTC sets up, so waiting longer costs
+// nothing; giving up too early left high-latency sellers (mobile, congested
+// office links) on the worse path for the whole call (backend#469).
+const SIGNAL_TIMEOUT_MS = 15000;
 // Back on WebRTC after a fallback: first retry soon, then back off.
 const RETRY_MIN_MS = 2000;
 const RETRY_MAX_MS = 30000;
@@ -138,7 +141,7 @@ export class LiveCall extends Emitter<LiveCallEvents> {
     this.opts = {
       transport: options.transport ?? 'websocket',
       fallback: options.fallback ?? true,
-      webrtcConnectTimeoutMs: options.webrtcConnectTimeoutMs ?? 10000,
+      webrtcConnectTimeoutMs: options.webrtcConnectTimeoutMs ?? 20000,
       resume: options.resume ?? true,
       audio: options.audio ?? (isBrowser() ? 'device' : 'pcm'),
     };

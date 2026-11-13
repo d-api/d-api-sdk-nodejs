@@ -110,7 +110,7 @@ const call = await dapi.voice.live({ to: '5511999999999' }, { transport: 'webrtc
 | `transport` | `'websocket'` | `'webrtc'` (recommended) moves only the audio to WebRTC; control stays on the WebSocket |
 | `fallback` | `true` | Stay on the WebSocket when WebRTC fails; `false` fails the call instead |
 | `audio` | `'device'` in browsers, `'pcm'` on Node | Who handles the audio: the SDK (mic/speaker) or your code |
-| `webrtcConnectTimeoutMs` | `10000` | Time for WebRTC to connect before falling back |
+| `webrtcConnectTimeoutMs` | `20000` | Time for WebRTC to connect before falling back (the audio flows on the WebSocket meanwhile) |
 | `resume` | `true` | Reconnect a dropped socket without losing the call |
 | `microphoneDeviceId` / `speakerDeviceId` | system default | Browser: which microphone and speaker to use (`deviceId` from `enumerateDevices`) |
 | `workletUrl` | built-in (`blob:`) | Browser: URL of the audio worklet, for strict CSPs such as Chrome extensions |

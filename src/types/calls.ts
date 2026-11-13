@@ -38,7 +38,7 @@ export interface CallMediaOptions {
   transport?: CallMediaTransport;
   /** Stay on the WebSocket when WebRTC fails instead of failing the call. Default true. */
   fallback?: boolean;
-  /** How long WebRTC may take to connect before falling back. Default 10000 ms. */
+  /** How long WebRTC may take to connect before falling back. Default 20000 ms. */
   webrtcConnectTimeoutMs?: number;
   /** Reconnect-friendly socket: a dropped socket parks the call for a few seconds. Default true. */
   resume?: boolean;
